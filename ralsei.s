@@ -25,11 +25,13 @@
 .define PPUADDR   $2006
 .define PPUDATA   $2007
 
-.define is_done_rendering $0200
+  ;; 0: Copying nametable
+  ;; 1: Copying attribute table
+  ;; 2: Done
+.define rendering_state $0200
 .define background_offset $0201
 .define current_addr_high $0202
 .define current_addr_low $0203
-
 
 on_reset:
   sei		; disable IRQs
@@ -37,7 +39,7 @@ on_reset:
   ldx #$40
   stx $4017	; disable APU frame IRQ
   ldx #$ff 	; Set up stack
-  txs		;  .
+  txs
   inx		; now X = 0
   stx PPUCTRL	; disable NMI
   stx PPUMASK 	; disable rendering
@@ -68,7 +70,7 @@ vblankwait2:
   bpl vblankwait2
 
 main:
-  ;; Setting background color.
+  ;; Copying color palette
   bit PPUSTATUS
 
   lda #$3F
@@ -77,8 +79,16 @@ main:
   lda #$00
   sta PPUADDR
 
-  lda #$05
+  ldx #$00
+
+@loop:
+  lda palette_data, x
   sta PPUDATA
+  inx
+  cpx #$07
+  bne @loop
+
+  ;; TODO: hardware: implement safe PPUADDR palette hack
 
   ;; Resetting variables
 
@@ -97,19 +107,23 @@ main:
   lda #%10000000	; Enable NMI
   sta PPUCTRL
 
+  ;; Work loop, currently unused
 
 forever:
   jmp forever
 
 
+  nop
 on_nmi:
-  lda is_done_rendering
-  beq load_row
-
+  lda rendering_state
+  beq load_nametable_row
+  cmp #$01
+  beq load_attribute_row
   rti
 
 
-load_row:
+  nop
+load_nametable_row:
   ;; writing nametable address of current row to PPUADDR
   lda PPUSTATUS
 
@@ -153,8 +167,23 @@ load_row:
   jmp end_load
 
 rendering_done:
+  ;; updating rendering state
   lda #$01
-  sta is_done_rendering
+  sta rendering_state
+
+  ;; setting current PPU address to attribute table start
+  bit PPUSTATUS
+
+  lda #$23
+  sta PPUADDR
+  sta current_addr_high
+
+  lda #$C0
+  sta PPUADDR
+  sta current_addr_low
+
+  lda #$00
+  sta background_offset
 
 end_load:
   ;; Setting PPUSCROLL
@@ -165,15 +194,25 @@ end_load:
 
   lda #$00
   sta PPUSCROLL
-
   rti
+
+  nop
+
+load_attribute_row:
+  ;; Loading attribute table
+  rti
+
 
 background_content:
   .incbin "ralsei-nametable.bin"
 
-palettes:
-  .byte $0f, $2a, $1a
-  .byte $0f, $30, $25
+attribute_data:
+  .incbin "ralsei-attribute-table.bin"
+
+palette_data:
+  .byte $01                     ; background color
+  .byte $0f, $2a, $1a           ; palette 0
+  .byte $0f, $30, $25           ; palette 1
 
 .segment "CHARS"
 
