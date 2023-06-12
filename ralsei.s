@@ -85,10 +85,60 @@ main:
   lda palette_data, x
   sta PPUDATA
   inx
-  cpx #$07
+  cpx #$08
   bne @loop
 
   ;; TODO: hardware: implement safe PPUADDR palette hack
+
+  ;; Copying attribute tables (risky)
+  ;; RISK: Taking too long
+  ;; TODO: unroll loops
+
+  ;; Preparing Memory & PPU registers
+  bit PPUSTATUS
+
+  lda #$23                      ; $23C0: start of attribute table
+  sta PPUADDR
+  sta current_addr_high
+
+  lda #$C0
+  sta PPUADDR
+  sta current_addr_low
+
+  ;; Loop Start
+  ldx #$00                      ; X: index into pattern table data array
+
+@col_loop:
+  ldy #$00                      ; Y: counter
+
+@row_loop:
+  lda attribute_data, x
+  sta PPUDATA
+
+  inx
+  iny
+  cpy #$4
+  bne @row_loop
+
+  lda current_addr_low
+  clc
+  adc #$08
+  sta current_addr_low
+  lda current_addr_high
+  adc #$00
+  sta current_addr_high
+
+  bit PPUSTATUS
+  sta PPUADDR
+  lda current_addr_low
+  sta PPUADDR
+
+
+  ;; TODO: check if it is ok
+
+  cpx #$10
+  bne @col_loop
+
 
   ;; Resetting variables
 
@@ -212,6 +262,7 @@ attribute_data:
 palette_data:
   .byte $01                     ; background color
   .byte $0f, $2a, $1a           ; palette 0
+  .byte $00
   .byte $0f, $30, $25           ; palette 1
 
 .segment "CHARS"
