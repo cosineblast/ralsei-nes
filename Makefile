@@ -11,6 +11,7 @@ clean:
 rom: build/ralsei.nes
 
 build/ralsei.nes: ralsei.s *.bin
+	mkdir -p build
 	cl65 ralsei.s --verbose --target nes -o $@
 
 run: build/ralsei.nes
