@@ -32,13 +32,21 @@
 .define background_offset $0201
 .define current_addr_high $0202
 .define current_addr_low $0203
-.define ralsei_x $0204
-.define ralsei_y $0205
-
-  ;; 0 = up right, 1 = up left, 2 = down left, 3 = down right
-.define ralsei_direction $0205
-
 .define is_updating $0204
+
+.define ralsei_x $0205
+.define ralsei_y $0206
+
+
+  ;; 2 bit value:
+  ;; least significant bit determines X, 0 = right, 1 = left
+  ;; most signfificant bit determines Y, 0 = down, 1 = up
+  ;; 00 = down right
+  ;; 01 = down left
+  ;; 10 = up right
+  ;; 11 = up left
+.define ralsei_direction $0207
+
 
 on_reset:
   sei		; disable IRQs
@@ -95,16 +103,20 @@ main:
   cpx #$08
   bne @loop
 
-  ;; TODO: hardware: implement safe PPUADDR palette hack
+  ;;  PPU Palette hack
+  lda #$3F
+  sta PPUADDR
+  lda #0
+  sta PPUADDR
+  sta PPUADDR
+  sta PPUADDR
 
-  ;; Copying attribute tables (risky)
-  ;; RISK: Taking too long
-  ;; TODO: unroll loops
+  ;; Copying attribute table
 
   ;; Preparing Memory & PPU registers
   bit PPUSTATUS
 
-  lda #$23                      ; $23C0: start of attribute table
+  lda #$23                      ; $23DC: attribute table entry for bottom right corner
   sta PPUADDR
   sta current_addr_high
 
@@ -168,36 +180,118 @@ main:
   lda #%10000000	; Enable NMI
   sta PPUCTRL
 
-  ;; Waiting for rendering to finish
+  ;; Update and Render Mechanics
 
-update:
+update_loop:
 
+  ;; Waiting for update to start
   @wait_update_start:
   lda is_updating
   beq @wait_update_start
 
-
+  jsr update
 
   lda #$00
   sta is_updating
-
-  jmp update
+  jmp update_loop
   nop
 
+  ;; update():
+  ;;
+update:
+
+update_x:
+  ldx ralsei_x
+
+  lda #$01
+  bit ralsei_direction
+  bne @is_left                  ; if (ralsei_direction & 1 == 0) {
+
+  inx                           ;   ralsei_x += 1;
+  jmp @end_if                   ; } else {
+
+  @is_left:
+  dex                           ;   ralsei_x -= 1;
+
+  @end_if:                      ; }
+  stx ralsei_x
+
+
+  cpx #$7f                      ; if (ralsei_x >= 127) {
+  bmi @skip_swap_direction
+
+  lda ralsei_direction          ;   ralsei_direction ^= 1; // swap X bit
+  eor #$01
+  sta ralsei_direction
+
+  @skip_swap_direction:         ; }
+
+update_y:
+
+  ldx ralsei_y
+
+  lda #$02
+  bit ralsei_direction
+  bne @is_up                  ; if (ralsei_direction & 2 == 0) {
+
+  inx                           ;   ralsei_y += 1;
+  jmp @end_if                   ; } else {
+
+  @is_up:
+  dex                           ;   ralsei_y -= 1;
+
+  @end_if:                      ; }
+  stx ralsei_y
+
+  bmi @do_swap_direction        ; if ((i8) ralsei_y < 0 || ralsei_x >= $69) {
+  cpx #$69                      ; // $69 = selected pixel so that it doesn't go past end of ralsei
+  bmi @skip_swap_direction
+  @do_swap_direction:
+
+  lda ralsei_direction          ;   ralsei_direction ^= 2; // swap Y bit
+  eor #$02
+  sta ralsei_direction
+
+  @skip_swap_direction:         ; }
+
+  rts
+
+  ;; render():
+  ;;
+render:
+  ;; Start of ralsei on bottom right is row $C, column $10, base point is
+  ;; ($80, $60)
+
+  bit PPUSTATUS
+
+  lda #$80
+  clc
+  sbc ralsei_x
+  sta PPUSCROLL
+
+  lda #$60
+  clc
+  sbc ralsei_y
+  sta PPUSCROLL
+  rts
+
 on_nmi:
+  ;; Rendering ralsei row if necessary
   lda ralsei_rendering_done
   beq load_nametable_row
+
+  ;; if (!is_updating) {
   lda is_updating
   bne nmi_end
 
-  ;; TODO: update uh PPUSCROLL here
+  jsr render                    ; render();
 
   lda #$01
-  sta is_updating
+  sta is_updating               ; is_updating = 1;
 
 nmi_end:
+  ;; }
   rti
-
 
   nop
 load_nametable_row:
@@ -266,11 +360,11 @@ rendering_done:
 end_load:
   ;; Setting PPUSCROLL
 
-  bit PPUSTATUS
-  lda #$00
+  bit PPUSTATUS                 ; ($80, $60) = Ralsei pixel bottom right coordinate
+  lda #$80
   sta PPUSCROLL
 
-  lda #$00
+  lda #$60
   sta PPUSCROLL
   rti
 
