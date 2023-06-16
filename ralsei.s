@@ -28,10 +28,17 @@
   ;; 0: Copying nametable
   ;; 1: Copying attribute table
   ;; 2: Done
-.define rendering_state $0200
+.define ralsei_rendering_done $0200
 .define background_offset $0201
 .define current_addr_high $0202
 .define current_addr_low $0203
+.define ralsei_x $0204
+.define ralsei_y $0205
+
+  ;; 0 = up right, 1 = up left, 2 = down left, 3 = down right
+.define ralsei_direction $0205
+
+.define is_updating $0204
 
 on_reset:
   sei		; disable IRQs
@@ -101,7 +108,8 @@ main:
   sta PPUADDR
   sta current_addr_high
 
-  lda #$C0
+
+  lda #$DC
   sta PPUADDR
   sta current_addr_low
 
@@ -109,16 +117,23 @@ main:
   ldx #$00                      ; X: index into pattern table data array
 
 @col_loop:
-  ldy #$00                      ; Y: counter
 
-@row_loop:
+  ;; Unrolled loop
   lda attribute_data, x
   sta PPUDATA
-
   inx
-  iny
-  cpy #$4
-  bne @row_loop
+
+  lda attribute_data, x
+  sta PPUDATA
+  inx
+
+  lda attribute_data, x
+  sta PPUDATA
+  inx
+
+  lda attribute_data, x
+  sta PPUDATA
+  inx
 
   lda current_addr_low
   clc
@@ -133,19 +148,15 @@ main:
   lda current_addr_low
   sta PPUADDR
 
-
-  ;; TODO: check if it is ok
-
   cpx #$10
   bne @col_loop
 
 
   ;; Resetting variables
-
-  lda #$20
+  lda #$21                      ; 2190 renders ralsei next to bottom right corner
   sta current_addr_high
 
-  lda #$00
+  lda #$90
   sta current_addr_low
 
   ;; Enabling rendering
@@ -157,18 +168,34 @@ main:
   lda #%10000000	; Enable NMI
   sta PPUCTRL
 
-  ;; Work loop, currently unused
+  ;; Waiting for rendering to finish
 
-forever:
-  jmp forever
+update:
+
+  @wait_update_start:
+  lda is_updating
+  beq @wait_update_start
 
 
+
+  lda #$00
+  sta is_updating
+
+  jmp update
   nop
+
 on_nmi:
-  lda rendering_state
+  lda ralsei_rendering_done
   beq load_nametable_row
-  cmp #$01
-  beq load_attribute_row
+  lda is_updating
+  bne nmi_end
+
+  ;; TODO: update uh PPUSCROLL here
+
+  lda #$01
+  sta is_updating
+
+nmi_end:
   rti
 
 
@@ -217,9 +244,10 @@ load_nametable_row:
   jmp end_load
 
 rendering_done:
-  ;; updating rendering state
+  ;; updating rendering and update state
   lda #$01
-  sta rendering_state
+  sta ralsei_rendering_done
+  sta is_updating
 
   ;; setting current PPU address to attribute table start
   bit PPUSTATUS
@@ -246,13 +274,6 @@ end_load:
   sta PPUSCROLL
   rti
 
-  nop
-
-load_attribute_row:
-  ;; Loading attribute table
-  rti
-
-
 background_content:
   .incbin "ralsei-nametable.bin"
 
@@ -261,7 +282,7 @@ attribute_data:
 
 palette_data:
   .byte $01                     ; background color
-  .byte $0f, $2a, $1a           ; palette 0
+  .byte $0f, $2a, $1c           ; palette 0
   .byte $00
   .byte $0f, $30, $25           ; palette 1
 
