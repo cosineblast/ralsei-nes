@@ -16,6 +16,8 @@
 
 .segment "CODE"
 
+.define JOYPAD1 $4016
+
 .define PPUCTRL   $2000
 .define PPUMASK   $2001
 .define PPUSTATUS $2002
@@ -25,9 +27,6 @@
 .define PPUADDR   $2006
 .define PPUDATA   $2007
 
-  ;; 0: Copying nametable
-  ;; 1: Copying attribute table
-  ;; 2: Done
 .define ralsei_rendering_done $0200
 .define background_offset $0201
 .define current_addr_high $0202
@@ -37,7 +36,6 @@
 .define ralsei_x $0205
 .define ralsei_y $0206
 
-
   ;; 2 bit value:
   ;; least significant bit determines X, 0 = right, 1 = left
   ;; most signfificant bit determines Y, 0 = down, 1 = up
@@ -46,6 +44,9 @@
   ;; 10 = up right
   ;; 11 = up left
 .define ralsei_direction $0207
+.define is_ralsei_move $0208
+
+.define joypad1_input $20
 
 
 on_reset:
@@ -180,8 +181,7 @@ main:
   lda #%10000000	; Enable NMI
   sta PPUCTRL
 
-  ;; Update and Render Mechanics
-
+  ;; Begin updating state
 update_loop:
 
   ;; Waiting for update to start
@@ -196,9 +196,53 @@ update_loop:
   jmp update_loop
   nop
 
-  ;; update():
-  ;;
-update:
+.proc read_input
+
+  ;; Asking controller chip to read input
+  lda #$01
+  sta JOYPAD1
+  sta joypad1_input
+
+  ;; Putting controller in output mode
+  lda #$00
+  sta JOYPAD1
+
+  ;; Now we have to load the bits onto joypad1_input
+
+@loop:
+  lda JOYPAD1
+  lsr A
+  rol joypad1_input
+  bcc @loop
+  rts
+
+.endproc
+
+.proc update
+
+  jsr read_input
+
+  ;; Input: A B Select Start Up Down Left Right
+  lda #%00001111
+  bit joypad1_input
+  bne update_movement
+
+  lda #%11000000
+  bit joypad1_input
+  bne update_dvd
+
+  lda is_ralsei_move
+  beq update_x
+  rts
+
+update_movement:
+  lda #$01
+  sta is_ralsei_move
+  rts
+
+update_dvd:
+  lda #$00
+  sta is_ralsei_move
 
 update_x:
   ldx ralsei_x
@@ -255,10 +299,9 @@ update_y:
   @skip_swap_direction:         ; }
 
   rts
+.endproc
 
-  ;; render():
-  ;;
-render:
+.proc render
   ;; Start of ralsei on bottom right is row $C, column $10, base point is
   ;; ($80, $60)
 
@@ -274,6 +317,7 @@ render:
   sbc ralsei_y
   sta PPUSCROLL
   rts
+.endproc
 
 on_nmi:
   ;; Rendering ralsei row if necessary
