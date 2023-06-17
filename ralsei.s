@@ -36,6 +36,9 @@
 .define ralsei_x $0205
 .define ralsei_y $0206
 
+.define MAX_RALSEI_X #$7f
+.define MAX_RALSEI_Y #$69
+
   ;; 2 bit value:
   ;; least significant bit determines X, 0 = right, 1 = left
   ;; most signfificant bit determines Y, 0 = down, 1 = up
@@ -238,6 +241,51 @@ update_loop:
 update_movement:
   lda #$01
   sta is_ralsei_move
+
+  lda joypad1_input
+  lsr A
+  bcs @is_right
+  lsr A
+  bcs @is_left
+  lsr A
+  bcs @is_down
+  lsr A
+  bcs @is_up
+  rts
+
+@is_right:
+  ldx ralsei_x
+  inx
+  cpx MAX_RALSEI_X
+  bmi @skip_too_right
+  ldx MAX_RALSEI_X-1
+  @skip_too_right:
+  stx ralsei_x
+  rts
+@is_left:
+  ldx ralsei_x
+  dex
+  bpl @skip_too_left
+  ldx 1
+  @skip_too_left:
+  stx ralsei_x
+  rts
+@is_up:
+  ldx ralsei_y
+  dex
+  bpl @skip_too_up
+  ldx 1
+  @skip_too_up:
+  stx ralsei_y
+  rts
+@is_down:
+  ldx ralsei_y
+  inx
+  cpx MAX_RALSEI_Y
+  bmi @skip_too_down
+  ldx MAX_RALSEI_Y-1
+  @skip_too_down:
+  stx ralsei_y
   rts
 
 update_dvd:
@@ -261,7 +309,7 @@ update_x:
   stx ralsei_x
 
 
-  cpx #$7f                      ; if (ralsei_x >= 127) {
+  cpx MAX_RALSEI_X                      ; if (ralsei_x >= 127) {
   bmi @skip_swap_direction
 
   lda ralsei_direction          ;   ralsei_direction ^= 1; // swap X bit
@@ -288,7 +336,7 @@ update_y:
   stx ralsei_y
 
   bmi @do_swap_direction        ; if ((i8) ralsei_y < 0 || ralsei_x >= $69) {
-  cpx #$69                      ; // $69 = selected pixel so that it doesn't go past end of ralsei
+  cpx MAX_RALSEI_Y              ;
   bmi @skip_swap_direction
   @do_swap_direction:
 
